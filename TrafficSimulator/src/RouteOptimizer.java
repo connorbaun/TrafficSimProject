@@ -2,56 +2,73 @@ import java.util.*;
 
 public class RouteOptimizer {
 
-    // implements djikstra's; returns best distance to each node
-    public static Map<Intersection, Double> dijkstra(TrafficGraph graph, Intersection start) {
+    public static List<Intersection> getShortestPath(
+            TrafficGraph graph,
+            Intersection start,
+            Intersection end,
+            boolean avoidTolls,
+            int hour
+    ) {
 
-        // stores distances to each node
-        Map<Intersection, Double> distance = new HashMap<>();
+        // distance table
+        Map<Intersection, Double> dist = new HashMap<>();
 
-        // priority queue removes smallest element first
-        // will process the closest intersection each time
+        // backtracking path
+        Map<Intersection, Intersection> prev = new HashMap<>();
+
         PriorityQueue<Intersection> pq =
-                new PriorityQueue<>(Comparator.comparingDouble(distance::get));
+                new PriorityQueue<>(Comparator.comparingDouble(dist::get));
 
-        // start each node at infinite distance away
+        // initialize distances
         for (Intersection i : graph.getIntersections()) {
-            distance.put(i, Double.MAX_VALUE);
+            dist.put(i, Double.POSITIVE_INFINITY);
         }
 
-        // starting node has distance of 0.0
-        distance.put(start, 0.0);
+        dist.put(start, 0.0);
         pq.add(start);
 
-        // until all reachable nodes are handled...
         while (!pq.isEmpty()) {
 
-            // poll( )  removes the lowest distance node
             Intersection current = pq.poll();
 
-            // checks all roads leaving the current intersection
-            for (Road road : graph.getNeighbors(current)) {
+            // reached destination early?
+            if (current.equals(end)) break;
 
-                //skip a closed road if we see one
-                if (road.closed)
+            for (Road r : graph.getNeighbors(current)) {
+
+                if (r.closed) continue;
+
+                if (avoidTolls && r.tollCost > 0) {
                     continue;
+                }
 
-                // if road goes from A-B, then the neighbor is B
-                Intersection neighbor = road.end;
+                Intersection neighbor = r.end;
 
-                // calculate distance to current node + travel time of that road
-                double newDist =
-                        distance.get(current) + road.getTravelTime();
+                double newDist = dist.get(current)
+                        + r.distance * r.getCongestionFactor(hour);
 
-                // if a shorter path was found, then update it in 'distance'
-                if (newDist < distance.get(neighbor)) {
-
-                    distance.put(neighbor, newDist);
+                if (newDist < dist.get(neighbor)) {
+                    dist.put(neighbor, newDist);
+                    prev.put(neighbor, current);
                     pq.add(neighbor);
-
                 }
             }
         }
 
-        return distance;
+        // reconstruct path
+        List<Intersection> path = new ArrayList<>();
+
+        Intersection step = end;
+
+        if (!prev.containsKey(end) && !start.equals(end)) {
+            return path; // no path found
+        }
+
+        while (step != null) {
+            path.add(0, step);
+            step = prev.get(step);
+        }
+
+        return path;
     }
 }
