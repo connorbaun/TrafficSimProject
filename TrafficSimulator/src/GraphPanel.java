@@ -6,22 +6,24 @@ import java.awt.event.MouseEvent;
 public class GraphPanel extends JPanel {
 
     private JLabel statusLabel;
-
     private TrafficGraph graph;
 
     private int nodeCounter = 0;
 
     private Intersection selected = null;
-
     private Intersection startNode = null;
     private Intersection endNode = null;
 
-    private boolean avoidTolls = false;
     private boolean createTollRoad = false;
+    private boolean createOneWay = false;
 
-    private int currentHour = 8; // 24-hour clock (0–23)
+    private int currentHour = 8;
 
-    private java.util.List<Intersection> shortestPath = new java.util.ArrayList<>();
+    private java.util.List<Intersection> shortestPath =
+            new java.util.ArrayList<>();
+
+    private RouteOptimizer.RouteMode routeMode =
+            RouteOptimizer.RouteMode.FASTEST;
 
     private enum Mode {
         BUILD,
@@ -36,7 +38,9 @@ public class GraphPanel extends JPanel {
 
         setBackground(Color.LIGHT_GRAY);
 
+        setFocusable(true);
 
+        //keys to switch modes
         addKeyListener(new java.awt.event.KeyAdapter() {
             @Override
             public void keyPressed(java.awt.event.KeyEvent e) {
@@ -44,43 +48,37 @@ public class GraphPanel extends JPanel {
                 char key = e.getKeyChar();
                 int code = e.getKeyCode();
 
-                // mode toggle
                 if (key == 'm') {
                     mode = (mode == Mode.BUILD) ? Mode.PATH : Mode.BUILD;
-                    updateStatus();
                 }
 
-                // avoid tolls
-                else if (key == 't') {
-                    avoidTolls = !avoidTolls;
-                    updateStatus();
-                }
-
-                // creating toll roads?
                 else if (key == 'p') {
                     createTollRoad = !createTollRoad;
-                    updateStatus();
                 }
 
-               //controlling time
+                else if (key == 'o') {
+                    createOneWay = !createOneWay;
+                }
+
+                else if (key == '1') routeMode = RouteOptimizer.RouteMode.FASTEST;
+                else if (key == '2') routeMode = RouteOptimizer.RouteMode.AVOID_TOLLS;
+                else if (key == '3') routeMode = RouteOptimizer.RouteMode.BALANCED;
+                else if (key == '4') routeMode = RouteOptimizer.RouteMode.EMERGENCY;
+
                 else if (code == java.awt.event.KeyEvent.VK_UP) {
                     currentHour = (currentHour + 1) % 24;
-                    updateStatus();
-                    repaint();
                 }
 
                 else if (code == java.awt.event.KeyEvent.VK_DOWN) {
                     currentHour = (currentHour - 1 + 24) % 24;
-                    updateStatus();
-                    repaint();
                 }
+
+                updateStatus();
+                repaint();
             }
         });
 
-        setFocusable(true);
-        requestFocusInWindow();
-
-        //mouse inputs
+        //fixed mouse controls
         addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
@@ -90,21 +88,20 @@ public class GraphPanel extends JPanel {
 
                 Intersection clicked = getClickedIntersection(x, y);
 
-                //new node
+                //add a nodes
                 if (clicked == null) {
 
                     if (mode == Mode.PATH) return;
 
                     String id = "I" + nodeCounter++;
-                    Intersection newNode = new Intersection(id, x, y);
-                    graph.addIntersection(newNode);
+                    graph.addIntersection(new Intersection(id, x, y));
 
                     selected = null;
                     repaint();
                     return;
                 }
 
-                //switching in path modes
+                //path mode
                 if (mode == Mode.PATH) {
 
                     if (startNode == null) {
@@ -112,11 +109,11 @@ public class GraphPanel extends JPanel {
                     } else {
                         endNode = clicked;
 
-                        RouteOptimizer.getShortestPath(
+                        shortestPath = RouteOptimizer.getShortestPath(
                                 graph,
                                 startNode,
                                 endNode,
-                                avoidTolls,
+                                routeMode,
                                 currentHour
                         );
 
@@ -125,7 +122,7 @@ public class GraphPanel extends JPanel {
                     }
                 }
 
-                //build modes.
+                //build mode
                 else {
 
                     if (selected == null) {
@@ -142,6 +139,8 @@ public class GraphPanel extends JPanel {
                                 r.tollCost = 3.0;
                             }
 
+                            r.oneWay = createOneWay;
+
                             graph.addRoad(r);
                         }
 
@@ -149,10 +148,12 @@ public class GraphPanel extends JPanel {
                     }
                 }
 
+                updateStatus();
                 repaint();
             }
         });
 
+        requestFocusInWindow();
         updateStatus();
     }
 
@@ -163,7 +164,7 @@ public class GraphPanel extends JPanel {
         return Math.sqrt(dx * dx + dy * dy) / 50.0;
     }
 
-    //stop duplicate roads
+    //prevent dupes
     private boolean roadExists(Intersection a, Intersection b) {
         for (Road r : graph.getNeighbors(a)) {
             if (r.end.equals(b)) return true;
@@ -171,7 +172,7 @@ public class GraphPanel extends JPanel {
         return false;
     }
 
-    //draw
+   //draw
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
@@ -182,20 +183,35 @@ public class GraphPanel extends JPanel {
 
                 double time = r.distance * r.getCongestionFactor(currentHour);
 
-                if (r.closed) {
-                    g.setColor(Color.GRAY);
-                } else if (r.congestionFactor > 1.5) {
-                    g.setColor(Color.RED);
-                } else if (r.tollCost > 0) {
-                    g.setColor(Color.ORANGE);
-                } else {
-                    g.setColor(Color.BLACK);
+                if (r.closed) g.setColor(Color.GRAY);
+                else if (r.congestionFactor > 1.5) g.setColor(Color.RED);
+                else if (r.tollCost > 0) g.setColor(Color.ORANGE);
+                else g.setColor(Color.BLACK);
+
+                //drawing the lines (shortened lines to prevent overlaps)
+                double dx = r.end.getX() - r.start.getX();
+                double dy = r.end.getY() - r.start.getY();
+
+                double len = Math.sqrt(dx*dx + dy*dy);
+
+                double shrink = 12 / len;
+
+                int xEnd = (int)(r.end.getX() - dx * shrink);
+                int yEnd = (int)(r.end.getY() - dy * shrink);
+
+                g.drawLine(r.start.getX(), r.start.getY(), xEnd, yEnd);
+
+                if (r.oneWay) {
+                    drawArrow(g, r.start.getX(), r.start.getY(), xEnd, yEnd);
                 }
 
-                g.drawLine(
-                        r.start.getX(), r.start.getY(),
-                        r.end.getX(), r.end.getY()
-                );
+                // draw arrow if one-way
+                if (r.oneWay) {
+                    drawArrow(g,
+                            r.start.getX(), r.start.getY(),
+                            r.end.getX(), r.end.getY()
+                    );
+                }
 
                 int midX = (r.start.getX() + r.end.getX()) / 2;
                 int midY = (r.start.getY() + r.end.getY()) / 2;
@@ -207,6 +223,11 @@ public class GraphPanel extends JPanel {
                 }
 
                 g.drawString(label, midX, midY);
+
+                if (r.oneWay) {
+                    g.setColor(Color.BLUE);
+                    g.drawString("→", midX, midY);
+                }
             }
         }
 
@@ -221,45 +242,60 @@ public class GraphPanel extends JPanel {
         // NODES
         for (Intersection i : graph.getIntersections()) {
 
-            if (i.equals(selected)) {
-                g.setColor(Color.GREEN);
-            } else if (i.equals(startNode)) {
-                g.setColor(Color.MAGENTA);
-            } else if (i.equals(endNode)) {
-                g.setColor(Color.ORANGE);
-            } else {
-                g.setColor(Color.BLUE);
-            }
+            if (i.equals(selected)) g.setColor(Color.GREEN);
+            else if (i.equals(startNode)) g.setColor(Color.MAGENTA);
+            else if (i.equals(endNode)) g.setColor(Color.ORANGE);
+            else g.setColor(Color.BLUE);
 
             g.fillOval(i.getX() - 6, i.getY() - 6, 12, 12);
-            g.drawString(i.getId(), i.getX() + 5, i.getY() - 5);
         }
+
+        updateStatus();
     }
 
-    //clicks
-    private Intersection getClickedIntersection(int mouseX, int mouseY) {
+ //clicks
+    private Intersection getClickedIntersection(int x, int y) {
 
         for (Intersection i : graph.getIntersections()) {
+            int dx = x - i.getX();
+            int dy = y - i.getY();
 
-            int dx = mouseX - i.getX();
-            int dy = mouseY - i.getY();
-
-            double distance = Math.sqrt(dx * dx + dy * dy);
-
-            if (distance <= 10) return i;
+            if (Math.sqrt(dx * dx + dy * dy) <= 10) {
+                return i;
+            }
         }
-
         return null;
     }
 
-    //label w/ status
-    private void updateStatus() {
-        statusLabel.setText(
-                "Mode: " + mode +
-                        " | Hour: " + currentHour +
-                        ":00" +
-                        " | Avoid Tolls: " + avoidTolls +
-                        " | Creating Toll Roads: " + (createTollRoad ? "ON" : "OFF")
-        );
+//stats bar
+private void updateStatus() {
+    statusLabel.setText(
+            "Mode: " + mode +
+                    " | Hour: " + currentHour +
+                    " | Route: " + routeMode +
+                    " | Toll Roads: " + (createTollRoad ? "ON" : "OFF") +
+                    " | One-Way: " + (createOneWay ? "ON" : "OFF")
+    );
+}
+
+    private void drawArrow(Graphics g, int x1, int y1, int x2, int y2) {
+
+        Graphics2D g2 = (Graphics2D) g.create();
+
+        double angle = Math.atan2(y2 - y1, x2 - x1);
+
+        int arrowLength = 10;
+        int arrowAngle = 25; // degrees
+
+        int xA = (int) (x2 - arrowLength * Math.cos(angle - Math.toRadians(arrowAngle)));
+        int yA = (int) (y2 - arrowLength * Math.sin(angle - Math.toRadians(arrowAngle)));
+
+        int xB = (int) (x2 - arrowLength * Math.cos(angle + Math.toRadians(arrowAngle)));
+        int yB = (int) (y2 - arrowLength * Math.sin(angle + Math.toRadians(arrowAngle)));
+
+        g2.drawLine(x2, y2, xA, yA);
+        g2.drawLine(x2, y2, xB, yB);
+
+        g2.dispose();
     }
 }
