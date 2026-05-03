@@ -24,6 +24,7 @@ public class GraphPanel extends JPanel {
     private List<Intersection> shortestPath = new ArrayList<>();
 
     private double totalTravelTime = 0.0;
+    private double totalTolls = 0.0;
 
     private RouteOptimizer.RouteMode routeMode = RouteOptimizer.RouteMode.FASTEST;
 
@@ -61,14 +62,22 @@ public class GraphPanel extends JPanel {
                 if (code == java.awt.event.KeyEvent.VK_UP) currentHour = (currentHour + 1) % 24;
                 if (code == java.awt.event.KeyEvent.VK_DOWN) currentHour = (currentHour - 1 + 24) % 24;
 
-                if (selectedRoad != null) {
-                    selectedRoad.setStatus(
-                            key == 'c' ? RoadStatus.CLOSED :
-                                    key == 'a' ? RoadStatus.ACCIDENT :
-                                            key == 'n' ? RoadStatus.CONSTRUCTION :
-                                                    key == 'o' ? RoadStatus.OPEN :
-                                                            selectedRoad.getStatus()
-                    );
+                if (key == 'x') {
+
+                    if (selectedRoad != null) {
+                        graph.removeRoad(selectedRoad.start, selectedRoad.end);
+                        selectedRoad = null;
+                    } else if (startNode != null && endNode != null) {
+                        graph.removeRoad(startNode, endNode);
+                    } else if (buildFromNode != null) {
+                        graph.removeIntersection(buildFromNode);
+                        buildFromNode = null;
+                    }
+
+                    shortestPath.clear();
+                    clearInvalidState();
+                    updateStatus();
+                    repaint();
                 }
 
                 updateStatus();
@@ -77,6 +86,11 @@ public class GraphPanel extends JPanel {
         });
 
         addMouseListener(new MouseAdapter() {
+
+            public void mousePressed(MouseEvent e) {
+                requestFocusInWindow();
+            }
+
             public void mouseClicked(MouseEvent e) {
 
                 int x = e.getX();
@@ -112,6 +126,7 @@ public class GraphPanel extends JPanel {
                         );
 
                         totalTravelTime = computeTotalTime(shortestPath);
+                        totalTolls = computeTotalTolls(shortestPath);
 
                         startNode = null;
                         endNode = null;
@@ -159,7 +174,23 @@ public class GraphPanel extends JPanel {
             }
         });
 
+        SwingUtilities.invokeLater(this::requestFocusInWindow);
         updateStatus();
+    }
+
+    private void clearInvalidState() {
+
+        if (buildFromNode != null && !graph.getIntersections().contains(buildFromNode)) buildFromNode = null;
+        if (startNode != null && !graph.getIntersections().contains(startNode)) startNode = null;
+        if (endNode != null && !graph.getIntersections().contains(endNode)) endNode = null;
+
+        if (selectedRoad != null) {
+            boolean valid = false;
+            for (Road r : graph.getNeighbors(selectedRoad.start)) {
+                if (r.end.equals(selectedRoad.end)) valid = true;
+            }
+            if (!valid) selectedRoad = null;
+        }
     }
 
     private double computeTotalTime(List<Intersection> path) {
@@ -172,6 +203,29 @@ public class GraphPanel extends JPanel {
             for (Road r : graph.getNeighbors(a)) {
                 if (r.end.equals(b)) {
                     sum += r.distance * r.getCongestionFactor(currentHour);
+                    break;
+                }
+            }
+        }
+
+        return sum;
+    }
+
+    private double computeTotalTolls(List<Intersection> path) {
+
+        if (routeMode == RouteOptimizer.RouteMode.EMERGENCY) {
+            return 0.0;
+        }
+
+        double sum = 0.0;
+
+        for (int i = 0; i < path.size() - 1; i++) {
+            Intersection a = path.get(i);
+            Intersection b = path.get(i + 1);
+
+            for (Road r : graph.getNeighbors(a)) {
+                if (r.end.equals(b)) {
+                    sum += r.tollCost;
                     break;
                 }
             }
@@ -210,8 +264,12 @@ public class GraphPanel extends JPanel {
 
                 double time = r.distance * r.getCongestionFactor(currentHour);
 
-                if (r.getStatus() != RoadStatus.OPEN) {
+                if (r.getStatus() == RoadStatus.CLOSED && routeMode != RouteOptimizer.RouteMode.EMERGENCY) {
+                    g2.setColor(Color.DARK_GRAY);
+                } else if (r.getStatus() == RoadStatus.CONSTRUCTION) {
                     g2.setColor(Color.GRAY);
+                } else if (r.getStatus() == RoadStatus.ACCIDENT) {
+                    g2.setColor(Color.PINK);
                 } else if (r.getCongestionFactor(currentHour) > 1.5) {
                     g2.setColor(Color.RED);
                 } else if (r.tollCost > 0) {
@@ -221,21 +279,15 @@ public class GraphPanel extends JPanel {
                 }
 
                 g2.setStroke(r.equals(selectedRoad) ? new BasicStroke(4) : new BasicStroke(1));
-
                 g2.drawLine(x1, y1, x2, y2);
-
-                if (r.oneWay) drawArrow(g2, x1, y1, x2, y2);
 
                 int mx = (x1 + x2) / 2;
                 int my = (y1 + y2) / 2;
 
                 String label = String.format("%.1f", time);
 
-                if (r.tollCost > 0) label += " $" + r.tollCost;
-                if (r.oneWay) label += " →";
-
-                if (r.getStatus() != RoadStatus.OPEN) {
-                    g2.drawString(r.getStatus().toString(), mx, my + 12);
+                if (routeMode != RouteOptimizer.RouteMode.EMERGENCY && r.tollCost > 0) {
+                    label += " $" + r.tollCost;
                 }
 
                 g2.drawString(label, mx, my);
@@ -313,34 +365,9 @@ public class GraphPanel extends JPanel {
                         " | Toll: " + (createTollRoad ? "ON" : "OFF") +
                         " | OneWay: " + (createOneWay ? "ON" : "OFF") +
                         " | SelectedRoad: " + (selectedRoad != null ? selectedRoad.getStatus() : "NONE") +
-                        " | Total travel time: " + String.format("%.2f", totalTravelTime)
+                        " | Total travel time: " + String.format("%.2f", totalTravelTime) +
+                        " | Total tolls: " + (routeMode == RouteOptimizer.RouteMode.EMERGENCY ? "NO TOLLS FOR EMS" : String.format("%.2f", totalTolls))
         );
-    }
-
-    private void drawArrow(Graphics2D g2, int x1, int y1, int x2, int y2) {
-
-        double dx = x2 - x1;
-        double dy = y2 - y1;
-
-        double length = Math.sqrt(dx * dx + dy * dy);
-        if (length == 0) return;
-
-        double ux = dx / length;
-        double uy = dy / length;
-
-        double ax = x2 - ux * 10;
-        double ay = y2 - uy * 10;
-
-        double angle = Math.atan2(dy, dx);
-
-        int xBack1 = (int)(ax - 10 * Math.cos(angle - Math.PI / 6));
-        int yBack1 = (int)(ay - 10 * Math.sin(angle - Math.PI / 6));
-
-        int xBack2 = (int)(ax - 10 * Math.cos(angle + Math.PI / 6));
-        int yBack2 = (int)(ay - 10 * Math.sin(angle + Math.PI / 6));
-
-        g2.fillPolygon(new int[]{(int)ax, xBack1, xBack2},
-                new int[]{(int)ay, yBack1, yBack2}, 3);
     }
 
     private void clearSelection() {
@@ -350,5 +377,6 @@ public class GraphPanel extends JPanel {
         buildFromNode = null;
         shortestPath.clear();
         totalTravelTime = 0.0;
+        totalTolls = 0.0;
     }
 }

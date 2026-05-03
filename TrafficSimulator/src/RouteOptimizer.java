@@ -36,9 +36,27 @@ public class RouteOptimizer {
 
             if (current.equals(end)) break;
 
-            for (Road r : graph.getNeighbors(current)) {
+            List<Road> edges = new ArrayList<>();
 
-                // CLOSED ROAD RULE
+            edges.addAll(graph.getNeighbors(current));
+
+            if (routeMode == RouteMode.EMERGENCY) {
+                for (Intersection i : graph.getIntersections()) {
+                    for (Road r : graph.getNeighbors(i)) {
+                        if (r.end.equals(current)) {
+                            Road fake = new Road(r.end, r.start, r.distance);
+                            fake.congestionFactor = r.congestionFactor;
+                            fake.tollCost = r.tollCost;
+                            fake.status = r.status;
+                            fake.oneWay = r.oneWay;
+                            edges.add(fake);
+                        }
+                    }
+                }
+            }
+
+            for (Road r : edges) {
+
                 if (r.status == RoadStatus.CLOSED && routeMode != RouteMode.EMERGENCY) {
                     continue;
                 }
@@ -64,8 +82,7 @@ public class RouteOptimizer {
                         break;
 
                     case EMERGENCY:
-                        // ignore tolls + allow closed roads if needed
-                        weight = time * 0.8; // emergency prefers speed
+                        weight = time * 0.8;
                         break;
 
                     default:
