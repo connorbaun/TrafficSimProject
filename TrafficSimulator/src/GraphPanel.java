@@ -45,9 +45,32 @@ public class GraphPanel extends JPanel {
 
                 int code = e.getKeyCode();
                 char key = e.getKeyChar();
+                key = Character.toLowerCase(key);
 
                 if (code == java.awt.event.KeyEvent.VK_ESCAPE) {
                     clearSelection();
+                }
+
+                if (selectedRoad != null) {
+
+                    if (key == 'c') {
+                        selectedRoad.setStatus(RoadStatus.CLOSED);
+                    }
+
+                    if (key == 'o') {
+                        selectedRoad.setStatus(RoadStatus.OPEN);
+                    }
+
+                    if (key == 'n') {
+                        selectedRoad.setStatus(RoadStatus.CONSTRUCTION);
+                    }
+
+                    if (key == 'a') {
+                        selectedRoad.setStatus(RoadStatus.ACCIDENT);
+                    }
+
+                    repaint();
+                    updateStatus();
                 }
 
                 if (key == 'm') mode = (mode == Mode.BUILD) ? Mode.PATH : Mode.BUILD;
@@ -280,6 +303,12 @@ public class GraphPanel extends JPanel {
 
                 g2.setStroke(r.equals(selectedRoad) ? new BasicStroke(4) : new BasicStroke(1));
                 g2.drawLine(x1, y1, x2, y2);
+                // draw arrow if one-way
+                if (r.oneWay) {
+                    drawArrowHead(g2, x1, y1, x2, y2);
+                }
+
+                drawRoadStatus(g2, r, x1, y1, x2, y2);
 
                 int mx = (x1 + x2) / 2;
                 int my = (y1 + y2) / 2;
@@ -378,5 +407,51 @@ public class GraphPanel extends JPanel {
         shortestPath.clear();
         totalTravelTime = 0.0;
         totalTolls = 0.0;
+    }
+
+    private void drawArrowHead(Graphics2D g2, int x1, int y1, int x2, int y2) {
+
+        double phi = Math.toRadians(25);
+        int barb = 12;
+
+        double dy = y2 - y1;
+        double dx = x2 - x1;
+        double theta = Math.atan2(dy, dx);
+
+        double x, y;
+
+        // left side of arrow
+        x = x2 - barb * Math.cos(theta + phi);
+        y = y2 - barb * Math.sin(theta + phi);
+        g2.drawLine(x2, y2, (int) x, (int) y);
+
+        // right side of arrow
+        x = x2 - barb * Math.cos(theta - phi);
+        y = y2 - barb * Math.sin(theta - phi);
+        g2.drawLine(x2, y2, (int) x, (int) y);
+
+    }
+
+    private void drawRoadStatus(Graphics2D g2, Road r, int x1, int y1, int x2, int y2) {
+
+        RoadStatus status = r.getStatus();
+
+        // don't clutter normal roads unless you want to
+        if (status == RoadStatus.OPEN) return;
+
+        int mx = (x1 + x2) / 2;
+        int my = (y1 + y2) / 2;
+
+        String text = status.toString();
+
+        // color per status
+        switch (status) {
+            case CLOSED -> g2.setColor(Color.DARK_GRAY);
+            case CONSTRUCTION -> g2.setColor(Color.GRAY);
+            case ACCIDENT -> g2.setColor(Color.PINK);
+            default -> g2.setColor(Color.BLACK);
+        }
+
+        g2.drawString(text, mx + 5, my - 5);
     }
 }
