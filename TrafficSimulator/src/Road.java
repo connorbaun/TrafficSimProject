@@ -5,11 +5,10 @@ public class Road {
 
     double distance;
     double congestionFactor;
-
     double tollCost;
-
-    boolean closed;
     boolean oneWay;
+
+    RoadStatus status;
 
     public Road(Intersection start, Intersection end, double distance) {
         this.start = start;
@@ -18,29 +17,34 @@ public class Road {
 
         congestionFactor = 1.0;
         tollCost = 0;
-        closed = false;
         oneWay = false;
+
+        status = RoadStatus.OPEN;
     }
 
     public double getCongestionFactor(int hour) {
 
-        // default
         double factor = congestionFactor;
 
-        // rush hour model
-        if (hour >= 7 && hour <= 9) {
-            factor *= 2.0;
-        }
-
-        if (hour >= 16 && hour <= 18) {
-            factor *= 2.0;
-        }
+        if (hour >= 7 && hour <= 9) factor *= 2.0;
+        if (hour >= 16 && hour <= 18) factor *= 2.0;
 
         return factor;
     }
 
-    // return the time for travel based on congestion and distance
     public double getTravelTime(int hour) {
         return distance * getCongestionFactor(hour);
+    }
+
+    public boolean isBlocked() {
+        return status != RoadStatus.OPEN;
+    }
+
+    public RoadStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(RoadStatus status) {
+        this.status = status;
     }
 }

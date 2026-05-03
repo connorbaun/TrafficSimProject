@@ -39,7 +39,7 @@ public class RouteOptimizer {
             for (Road r : graph.getNeighbors(current)) {
 
                 // CLOSED ROAD RULE
-                if (r.closed && routeMode != RouteMode.EMERGENCY) {
+                if (r.status == RoadStatus.CLOSED && routeMode != RouteMode.EMERGENCY) {
                     continue;
                 }
 
